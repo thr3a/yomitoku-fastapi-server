@@ -7,10 +7,19 @@ ENV TZ=Asia/Tokyo
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=on
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV UV_PROJECT_ENVIRONMENT="/usr/local/"
+ENV UV_HTTP_TIMEOUT=999
 
-# RUN apt-get update && \
-#     apt-get install -y --no-install-recommends curl ffmpeg ca-certificates && \
-#     rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt install -y --no-install-recommends \
+    software-properties-common \
+    build-essential \
+    curl \
+    wget \
+    git \
+    ca-certificates \
+    poppler-utils \
+    libopencv-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
@@ -28,4 +37,4 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
-CMD ["/app/.venv/bin/fastapi", "run", "app/main.py", "--port", "3000"]
+CMD ["fastapi", "run", "/app/app/main.py", "--port", "3000"]
