@@ -19,13 +19,35 @@ import numpy as np
 import torch
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from yomitoku import DocumentAnalyzer
 from yomitoku.data.functions import load_pdf
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI()
+# OpenAPI/Swagger UI に表示される API メタデータ
+tags_metadata = [
+    {
+        "name": "情報",
+        "description": "サービスの基本情報や動作確認に利用するエンドポイント群です。",
+    },
+    {
+        "name": "解析",
+        "description": "画像や PDF を対象に OCR・レイアウト解析を行うエンドポイント群です。",
+    },
+]
+
+app = FastAPI(
+    title="Yomitoku FastAPI Server",
+    description=("Yomitoku を HTTP API として提供するサーバー実装です。\n\n主に以下の機能を提供します:\n- 画像/PDF のアップロードと OCR・レイアウト解析 (POST /analyze)\n- 稼働確認用のヘルスチェック (GET /health)\n\nSwagger UI では各エンドポイントの入力/出力例やエラー応答を確認できます。"),
+    version="0.1.0",
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
+    openapi_tags=tags_metadata,
+)
 
 # CORS の設定（開発用に緩め。本番では適切に制限してください）
 app.add_middleware(
@@ -70,16 +92,60 @@ analyzer = DocumentAnalyzer(
 logger.info("DocumentAnalyzer の初期化が完了しました。")
 
 
-@app.get("/")
-async def root() -> dict[str, str]:
-    """トップページ。"""
-    return {"message": "turai.work"}
+class RootResponse(BaseModel):
+    """ルートエンドポイントのレスポンス。"""
+
+    message: str = Field(description="簡単な案内メッセージ")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"message": "turai.work"},
+                {"message": "ようこそ Yomitoku API へ"},
+            ]
+        }
+    }
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
+class HealthResponse(BaseModel):
+    """ヘルスチェックのレスポンス。"""
+
+    status: str = Field(description="サーバーの状態 (ok で正常)")
+
+    model_config = {"json_schema_extra": {"examples": [{"status": "ok"}]}}
+
+
+class ErrorResponse(BaseModel):
+    """エラーレスポンスの共通形式。"""
+
+    detail: str = Field(description="エラーの詳細メッセージ")
+
+    model_config = {"json_schema_extra": {"examples": [{"detail": "画像の読み込みに失敗しました。"}]}}
+
+
+@app.get(
+    "/",
+    summary="ルート",
+    description=("API の案内を返します。動作確認用に利用できます。\n\nSwagger UI: `/docs` / ReDoc: `/redoc`"),
+    tags=["情報"],
+    response_model=RootResponse,
+    response_description="案内メッセージ",
+)
+async def root() -> RootResponse:
+    return RootResponse(message="turai.work")
+
+
+@app.get(
+    "/health",
+    summary="ヘルスチェック",
+    description="アプリケーションが稼働中かを確認します。監視の疎通確認にも利用できます。",
+    tags=["情報"],
+    response_model=HealthResponse,
+    response_description="サーバーの状態",
+)
+async def health() -> HealthResponse:
     """ヘルスチェック用エンドポイント。"""
-    return {"status": "ok"}
+    return HealthResponse(status="ok")
 
 
 @app.on_event("startup")
@@ -88,21 +154,98 @@ async def on_startup() -> None:
     logger.info("FastAPI サーバーの準備ができました。リクエストを受け付けます。")
 
 
-@app.post("/analyze")
+class AnalyzeResponse(BaseModel):
+    """解析結果のレスポンス形式。"""
+
+    format: Literal["json", "markdown", "vertical", "horizontal"] = Field(description="返却するフォーマット")
+    content: str | list[dict[str, object]] = Field(description=("`format` が `json` の場合はページごとの JSON 配列、それ以外は連結済みテキストを含む文字列"))
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "summary": "JSON 形式",
+                    "description": "ページごとの生 JSON を返す例",
+                    "value": {
+                        "format": "json",
+                        "content": [
+                            {
+                                "paragraphs": [
+                                    {
+                                        "direction": "vertical",
+                                        "contents": "縦書きテキストの例",
+                                    }
+                                ]
+                            }
+                        ],
+                    },
+                },
+                {
+                    "summary": "Markdown 形式",
+                    "value": {
+                        "format": "markdown",
+                        "content": "# 見出し\n本文の例...",
+                    },
+                },
+                {
+                    "summary": "縦書きテキスト",
+                    "value": {
+                        "format": "vertical",
+                        "content": "縦書きの抽出結果...",
+                    },
+                },
+            ]
+        }
+    }
+
+
+@app.post(
+    "/analyze",
+    summary="ドキュメント解析",
+    description=(
+        "画像 (JPG/PNG など) または PDF を受け取り、OCR とレイアウト解析を実施します。\n\n"
+        "- `json`: Yomitoku の生 JSON をページ単位で返します。\n"
+        "- `markdown`: 各ページの Markdown を生成し、連結して返します。\n"
+        "- `vertical`/`horizontal`: 指定方向のテキストのみを抽出し、連結して返します。\n\n"
+        "注意: 本サーバーは GPU(CUDA) 前提です。CUDA が無い環境では起動に失敗します。\n"
+        "Content-Type は `multipart/form-data` を利用してください。"
+    ),
+    tags=["解析"],
+    status_code=200,
+    response_model=AnalyzeResponse,
+    response_description="解析結果",
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "無効なファイル形式や読み込み失敗などの入力エラー",
+        },
+        415: {
+            "description": "未対応の Content-Type",
+            "content": {"application/json": {"example": {"detail": "Unsupported Media Type"}}},
+        },
+        500: {
+            "description": "サーバー内部エラー",
+            "content": {"application/json": {"example": {"detail": "Internal Server Error"}}},
+        },
+    },
+)
 async def analyze_document(
-    file: UploadFile = File(..., description="入力ファイル（画像またはPDF)"),
+    file: UploadFile = File(
+        ...,
+        description=("入力ファイル。画像 (JPG/PNG など) または PDF に対応。最大サイズは運用環境の制限に依存します。"),
+    ),
     format: Literal["json", "markdown", "vertical", "horizontal"] = Query(
         "json",
-        description="出力フォーマット (json, markdown, vertical, horizontal)",
+        description=("出力フォーマット。`json`/`markdown`/`vertical`/`horizontal` から選択"),
+        examples={
+            "json": {"summary": "生 JSON", "value": "json"},
+            "markdown": {"summary": "Markdown", "value": "markdown"},
+            "vertical": {"summary": "縦書き", "value": "vertical"},
+            "horizontal": {"summary": "横書き", "value": "horizontal"},
+        },
     ),
-) -> dict[str, object]:
-    """画像/PDF からテキスト・レイアウトを抽出するエンドポイント。
-
-    - json: yomitoku の生 JSON（ページごと）
-    - markdown: 解析結果を Markdown に変換して連結
-    - vertical: 縦書きテキストのみを抽出して連結
-    - horizontal: 横書きテキストのみを抽出して連結
-    """
+) -> AnalyzeResponse:
+    """画像/PDF からテキスト・レイアウトを抽出して返します。"""
     # アップロードファイルを一時ファイルとして保存（PDF や再読込の都合上必要）
     contents = await file.read()
     with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tf:
@@ -143,7 +286,7 @@ async def analyze_document(
                 md_pages.append(page_md)
 
             final_markdown = "".join((f"\n\n## Page {i + 1}\n\n" if i > 0 else "") + md for i, md in enumerate(md_pages))
-            return {"format": "markdown", "content": final_markdown}
+            return AnalyzeResponse(format="markdown", content=final_markdown)
 
         if fmt in {"vertical", "horizontal"}:
             all_text: list[str] = []
@@ -151,10 +294,10 @@ async def analyze_document(
                 json_content = json.loads(results.model_dump_json())
                 text = "\n".join(p["contents"] for p in json_content["paragraphs"] if p["direction"] == fmt and p["contents"] is not None)
                 all_text.append(text)
-            return {"format": fmt, "content": "\n\n".join(all_text)}
+            return AnalyzeResponse(format=fmt, content="\n\n".join(all_text))
 
         # 既定: ページ単位の生 JSON を返す
         json_results = [json.loads(results.model_dump_json()) for results in all_results]
-        return {"format": "json", "content": json_results}
+        return AnalyzeResponse(format="json", content=json_results)
     finally:
         temp_path.unlink(missing_ok=True)
