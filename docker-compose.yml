@@ -8,7 +8,7 @@ services:
     stop_grace_period: 0s
     ipc: host
     ports:
-      - "3200:8000"
+      - "3200:3000"
     volumes:
       # - .:/workspace
       - ~/.cache:/root/.cache
