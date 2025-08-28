@@ -1,0 +1,94 @@
+name: Kamal CI
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  TZ: Asia/Tokyo
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    env:
+      APP_NAME: fastapi-template
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: thr3a
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate Docker Image Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.actor }}/${{ env.APP_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=,suffix,format=long
+          labels: |
+            service=${{ env.APP_NAME }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy to Server
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_KEY }}
+          known_hosts: unnecessary
+          name: id_ed25519
+          # config: ${{ secrets.SSH_CONFIG }}
+
+      - name: Install cloudflared
+        run: |
+          curl -sL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /tmp/cloudflared
+          /tmp/cloudflared --version
+
+      - name: Set up Ruby for Kamal
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Install Kamal
+        run: gem install kamal
+
+      - name: Replace Cloudflare Token (CF_TOKEN)
+        run: |
+          sed -i 's/CF_TOKEN/${{ secrets.CF_TOKEN }}/g' .github/workflows/deploy.yml
+
+      - name: Deploy to Server
+        run: kamal deploy --skip-push
+        env:
+          KAMAL_REGISTRY_USERNAME: thr3a
+          KAMAL_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}

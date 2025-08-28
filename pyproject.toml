@@ -1,0 +1,72 @@
+[project]
+name = "fastapi-template"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi[standard]",
+    "ruff",
+    "pytest"
+]
+
+[tool.ruff]
+line-length = 300
+target-version = "py313"
+exclude = [".git", ".ruff_cache", ".venv", ".vscode"]
+
+[tool.ruff.lint]
+preview = true
+select = [
+    "ANN", # type annotation
+    "B",   # flake8-bugbear
+    "D",   # pydocstyle
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "PTH", # use `pathlib.Path` instead of `os.path`
+    "RUF", # ruff specific rules
+    "SIM", # flake8-simplify
+    "UP",  # pyupgrade
+    "W",   # pycodestyle warnings
+]
+ignore = [
+    "RUF001", # 文字列内の曖昧なUnicode文字を許容
+    "ANN401", # 関数引数の型アノテーションがAnyでも許容
+    "B007",   # ループ変数の未使用を許容
+    "B008",   # デフォルト引数での関数呼び出しを許容
+    "B905",   # strict=Trueなしのzip()使用を許容
+    "COM812", # カンマの付け忘れを許容
+    "COM819", # カンマ禁止違反を許容
+    "D1",     # 公開モジュール・クラス・関数・メソッドのdocstring省略を許容
+    "D203",   # クラスdocstring前の空行数（GoogleスタイルではD211優先のため無視）
+    "D205",   # docstringの要約行と説明の間の空行数を無視
+    "D212",   # 複数行docstringの要約行の位置（1行目開始）を無視
+    "D213",   # 複数行docstringの要約行の位置（2行目開始）を無視
+    "D400",   # docstringの1行目の末尾ピリオドを無視
+    "D415",   # docstringの1行目の末尾句読点（ピリオド等）を無視
+    "E114",   # コメント行のインデントが4の倍数でない場合を許容
+    "G004",   # ログ出力でのf-string使用を許容
+    "ISC001", # 1行での暗黙的な文字列連結を許容
+    "ISC002", # 複数行での暗黙的な文字列連結を許容
+    "PTH123", # open()のPath.open()置き換えを強制しない
+    # "Q000",   # シングルクォート使用を許容（ダブルクォート推奨違反）
+    "Q001",   # 複数行文字列でのシングルクォート使用を許容
+    "Q002",   # docstringでのシングルクォート使用を許容
+    "RUF002", # docstring内の曖昧なUnicode文字を許容
+    "RUF003", # コメント内の曖昧なUnicode文字を許容
+    "SIM105", # try-except-passをcontextlib.suppressで置き換えなくても許容
+    "SIM108", # if-elseブロックを三項演算子にしなくても許容
+    "SIM116", # 連続したif文を辞書にしなくても許容
+    "UP038",  # isinstanceの(X, Y)をX | Yにしなくても許容（非推奨）
+]
+unfixable = [
+    "F401", # unused import
+    "F841", # unused variable
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

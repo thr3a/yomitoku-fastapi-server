@@ -1,0 +1,34 @@
+name: Generate repo.md
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  TZ: Asia/Tokyo
+
+permissions:
+  contents: write
+
+jobs:
+  generate-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run repo2txt.sh
+        run: |
+          chmod +x ./repo2txt.sh
+          ./repo2txt.sh
+
+      - name: Push to repo2txt branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b repo2txt || git checkout repo2txt
+          git add ./repo.md
+          git commit -m "Update repo.md"
+          git push origin HEAD:repo2txt --force
