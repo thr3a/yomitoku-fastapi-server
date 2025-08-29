@@ -1,0 +1,6 @@
+- 会話とコード内のコメントは日本語でお願いします。
+- コードスタイルはpyproject.tomlに記載されたruffルールに準拠すること
+- 型注釈・docstringを活用すること
+- サーバーはuv run uvicorn app.main:app --reload --host 0.0.0.0 --port 3000で起動中
+- 本番環境ではDockerfileのイメージで起動する
+- パッケージはuvで管理している。インストールされたパッケージは.venv/lib/python3.13/site-packages/以下に入っている

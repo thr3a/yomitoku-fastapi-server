@@ -8,11 +8,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import tempfile
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import cv2
 import numpy as np
@@ -22,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from yomitoku import DocumentAnalyzer
 from yomitoku.data.functions import load_pdf
+from yomitoku.document_analyzer import DocumentAnalyzerSchema
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -154,49 +154,44 @@ async def on_startup() -> None:
     logger.info("FastAPI サーバーの準備ができました。リクエストを受け付けます。")
 
 
-class AnalyzeResponse(BaseModel):
-    """解析結果のレスポンス形式。"""
+class AnalyzeJsonResponse(BaseModel):
+    """`format` が `json` のときのレスポンス。
 
-    format: Literal["json", "markdown", "vertical", "horizontal"] = Field(description="返却するフォーマット")
-    content: str | list[dict[str, object]] = Field(description=("`format` が `json` の場合はページごとの JSON 配列、それ以外は連結済みテキストを含む文字列"))
+    `content` はページごとの `DocumentAnalyzerSchema` の配列。
+    """
 
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "summary": "JSON 形式",
-                    "description": "ページごとの生 JSON を返す例",
-                    "value": {
-                        "format": "json",
-                        "content": [
-                            {
-                                "paragraphs": [
-                                    {
-                                        "direction": "vertical",
-                                        "contents": "縦書きテキストの例",
-                                    }
-                                ]
-                            }
-                        ],
-                    },
-                },
-                {
-                    "summary": "Markdown 形式",
-                    "value": {
-                        "format": "markdown",
-                        "content": "# 見出し\n本文の例...",
-                    },
-                },
-                {
-                    "summary": "縦書きテキスト",
-                    "value": {
-                        "format": "vertical",
-                        "content": "縦書きの抽出結果...",
-                    },
-                },
-            ]
-        }
-    }
+    format: Literal["json"] = Field(description="返却するフォーマット種別 (常に json)")
+    content: list[DocumentAnalyzerSchema] = Field(
+        description="ページごとの解析結果 (構造化 JSON)",
+    )
+
+
+class AnalyzeMarkdownResponse(BaseModel):
+    """`format` が `markdown` のときのレスポンス。"""
+
+    format: Literal["markdown"] = Field(description="返却するフォーマット種別 (常に markdown)")
+    content: str = Field(description="Markdown 文字列")
+
+
+class AnalyzeVerticalResponse(BaseModel):
+    """`format` が `vertical` のときのレスポンス。"""
+
+    format: Literal["vertical"] = Field(description="返却するフォーマット種別 (常に vertical)")
+    content: str = Field(description="縦書きテキストを連結した文字列")
+
+
+class AnalyzeHorizontalResponse(BaseModel):
+    """`format` が `horizontal` のときのレスポンス。"""
+
+    format: Literal["horizontal"] = Field(description="返却するフォーマット種別 (常に horizontal)")
+    content: str = Field(description="横書きテキストを連結した文字列")
+
+
+# 判別ユニオン: `format` を判別子としてレスポンス型を切り替える
+AnalyzeResponse = Annotated[
+    AnalyzeJsonResponse | AnalyzeMarkdownResponse | AnalyzeVerticalResponse | AnalyzeHorizontalResponse,
+    Field(discriminator="format"),
+]
 
 
 @app.post(
@@ -289,15 +284,16 @@ async def analyze_document(
             return AnalyzeResponse(format="markdown", content=final_markdown)
 
         if fmt in {"vertical", "horizontal"}:
+            # 構造化オブジェクトから方向別にテキストを抽出
             all_text: list[str] = []
             for results in all_results:
-                json_content = json.loads(results.model_dump_json())
-                text = "\n".join(p["contents"] for p in json_content["paragraphs"] if p["direction"] == fmt and p["contents"] is not None)
-                all_text.append(text)
-            return AnalyzeResponse(format=fmt, content="\n\n".join(all_text))
+                texts = [p.contents for p in results.paragraphs if p.direction == fmt and p.contents is not None]
+                all_text.append("\n".join(texts))
 
-        # 既定: ページ単位の生 JSON を返す
-        json_results = [json.loads(results.model_dump_json()) for results in all_results]
-        return AnalyzeResponse(format="json", content=json_results)
+            if fmt == "vertical":
+                return AnalyzeVerticalResponse(format="vertical", content="\n\n".join(all_text))
+            return AnalyzeHorizontalResponse(format="horizontal", content="\n\n".join(all_text))
+
+        return AnalyzeJsonResponse(format="json", content=all_results)
     finally:
         temp_path.unlink(missing_ok=True)
