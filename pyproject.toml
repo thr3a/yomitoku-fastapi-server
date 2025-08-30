@@ -14,6 +14,7 @@ dependencies = [
 [tool.ruff]
 line-length = 300
 target-version = "py313"
+
 exclude = [".git", ".ruff_cache", ".venv", ".vscode"]
 
 [tool.ruff.lint]
